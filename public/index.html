@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Inventory System</title>
+    <style>
+        :root { --primary: #6366f1; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --border: #e2e8f0; --success: #10b981; --danger: #ef4444; }
+        .dark-mode { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --border: #334155; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: 0.3s; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .grid { display: grid; grid-template-columns: 320px 1fr 300px; gap: 20px; }
+        .card { background: var(--card); padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .logo-box { width: 40px; height: 40px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 20px; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); box-sizing: border-box; }
+        button { padding: 10px 15px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; color: white; }
+        .btn-primary { background: var(--primary); width: 100%; }
+        .btn-sale { background: var(--success); font-size: 11px; }
+        .btn-del { background: var(--danger); font-size: 11px; margin-left: 5px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+        .prod-img { width: 50px; height: 50px; border-radius: 8px; object-fit: cover; transition: 0.3s; cursor: zoom-in; }
+        .prod-img:hover { transform: scale(3.5); z-index: 100; position: relative; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
+        .log-item { font-size: 12px; padding: 10px; border-bottom: 1px solid var(--border); }
+        .stock-bar { height: 6px; background: #e2e8f0; border-radius: 10px; margin-top: 5px; overflow: hidden; }
+    </style>
+</head>
+<body>
+
+<div id="login-screen" style="position:fixed; inset:0; background:#0f172a; display:flex; align-items:center; justify-content:center; z-index:9999;">
+    <div class="card" style="width:320px; text-align:center; background:#1e293b; color:white; border:none;">
+        <div class="logo-box" style="margin: 0 auto 15px;">V</div>
+        <h2 style="margin:0">Admin Portal</h2>
+        <p style="color:#94a3b8; font-size:14px;">Please sign in to continue</p>
+        <input type="text" id="user" placeholder="Username">
+        <input type="password" id="pass" placeholder="Password">
+        <button onclick="login()" class="btn-primary" style="margin-top:10px;">Login</button>
+    </div>
+</div>
+
+<div class="container" id="main-content" style="display:none;">
+    <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom:25px;">
+        <div style="display:flex; align-items:center; gap:15px;">
+            <div class="logo-box">V</div>
+            <h1 style="margin:0; letter-spacing:-1px;">Inventory</h1>
+        </div>
+        <div style="display:flex; gap:10px;">
+            <button onclick="toggleDark()" style="background:#334155;">🌙 Theme</button>
+            <button onclick="exportCSV()" style="background:var(--success);">📥 CSV</button>
+            <button onclick="location.reload()" style="background:var(--danger);">Logout</button>
+        </div>
+    </header>
+
+    <div class="grid">
+        <div class="card">
+            <h3 style="margin-top:0">➕ Register Item</h3>
+            <input type="text" id="name" placeholder="Item Name">
+            <input type="number" id="price" placeholder="Price (₱)">
+            <input type="number" id="stock" placeholder="Qty">
+            <select id="sup_select"></select>
+            <input type="file" id="image">
+            <button onclick="addItem()" class="btn-primary">Add to Stock</button>
+        </div>
+
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="margin:0">Live Inventory</h3>
+                <h2 id="rev-total" style="margin:0; color:var(--success);">Revenue: ₱0</h2>
+            </div>
+            <table>
+                <thead><tr><th>Img</th><th>Product</th><th>Stock Status</th><th>Action</th></tr></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0">📑 Activity History</h3>
+            <div id="logBody" style="max-height: 600px; overflow-y: auto;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function speak(t) { window.speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }
+
+    async function login() {
+        const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: document.getElementById('user').value, password: document.getElementById('pass').value}) });
+        if(res.ok) { document.getElementById('login-screen').style.display = 'none'; document.getElementById('main-content').style.display = 'block'; speak("Access granted."); loadSups(); refresh(); }
+        else alert("Invalid Credentials");
+    }
+
+    async function refresh() {
+        const res = await fetch('/api/dashboard');
+        const data = await res.json();
+        document.getElementById('rev-total').innerText = "Revenue: ₱" + data.revenue.toLocaleString();
+        
+        document.getElementById('tableBody').innerHTML = data.items.map(i => {
+            const color = i.stock <= 5 ? 'var(--danger)' : 'var(--success)';
+            const width = Math.min((i.stock / 20) * 100, 100);
+            return `<tr>
+                <td><img src="${i.image}" class="prod-img"></td>
+                <td><b>${i.name}</b><br><small>₱${i.price.toLocaleString()}</small></td>
+                <td><span style="color:${color}; font-weight:bold;">${i.stock} Units</span>
+                    <div class="stock-bar"><div style="height:100%; width:${width}%; background:${color}; transition:0.5s;"></div></div>
+                </td>
+                <td>
+                    <button onclick="sellItem(${i.id}, ${i.price}, '${i.name}')" class="btn-sale">Sale</button>
+                    <button onclick="delItem(${i.id}, '${i.name}')" class="btn-del">Del</button>
+                </td>
+            </tr>`;
+        }).join('');
+
+        document.getElementById('logBody').innerHTML = data.history.map(l => `
+            <div class="log-item">
+                <span style="color:var(--primary); font-weight:bold;">[${l.action}]</span> ${l.details}<br>
+                <small style="color:gray;">${new Date(l.timestamp).toLocaleTimeString()}</small>
+            </div>
+        `).join('');
+    }
+
+    async function sellItem(id, price, name) {
+        const qty = prompt(`How many units of ${name} sold?`, "1");
+        if(!qty) return;
+        await fetch('/api/sales', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({product_id: id, qty: parseInt(qty), price: price, name: name}) });
+        refresh();
+    }
+
+    async function delItem(id, name) {
+        if(confirm(`Delete ${name} permanently?`)) {
+            await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
+            refresh();
+        }
+    }
+
+    async function addItem() {
+        const fd = new FormData();
+        fd.append('name', document.getElementById('name').value);
+        fd.append('price', document.getElementById('price').value);
+        fd.append('stock', document.getElementById('stock').value);
+        fd.append('supplier_id', document.getElementById('sup_select').value);
+        fd.append('image', document.getElementById('image').files[0]);
+        await fetch('/api/inventory', { method: 'POST', body: fd });
+        refresh();
+    }
+
+    async function loadSups() {
+        const res = await fetch('/api/suppliers');
+        const data = await res.json();
+        document.getElementById('sup_select').innerHTML = data.map(s => `<option value="${s.id}">${s.s_name}</option>`).join('');
+    }
+
+    function toggleDark() { document.body.classList.toggle('dark-mode'); }
+    
+    function exportCSV() {
+        let csv = "Product,Price,Stock\n";
+        document.querySelectorAll("#tableBody tr").forEach(tr => {
+            const cols = tr.querySelectorAll("td");
+            csv += `${cols[1].innerText.split('\n')[0]},${cols[1].innerText.split('₱')[1].replace(',','')},${cols[2].innerText.split(' ')[0]}\n`;
+        });
+        const a = document.createElement('a');
+        a.href = window.URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+        a.download = 'inventory_report.csv'; a.click();
+    }
+</script>
+</body>
+</html>
